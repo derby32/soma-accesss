@@ -7,6 +7,7 @@
 <title>SOMA Access</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   .brand img {
   width: 220px;
@@ -27,6 +28,7 @@ button,.filebtn{width:100%;border:0;border-radius:14px;padding:14px;margin:5px 0
 table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;border-bottom:1px solid #252525;padding:9px 5px}th{color:#888}
 .small{font-size:12px;color:#999;line-height:1.45}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .hidden{display:none!important}
+input.door{width:100%;margin:8px 0 12px;padding:13px;border-radius:12px;border:1px solid #333;background:#0c0c0c;color:#fff;font-size:16px}
 </style>
 </head>
 <body>
@@ -45,17 +47,19 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;b
   <div id="result" class="result"><h2 id="rTitle"></h2><div class="who" id="rWho"></div><div class="detail" id="rDetail"></div></div>
 
   <div class="card">
+    <label class="small">PUERTA / DISPOSITIVO</label>
+    <input id="door" class="door" value="Puerta 1" autocomplete="off">
+    <div id="onlineState" class="small" style="margin-bottom:10px">● Comprobando conexión…</div>
     <div id="reader"></div>
     <button id="startBtn">ABRIR CÁMARA</button>
     <button id="stopBtn" class="secondary hidden">DETENER CÁMARA</button>
   </div>
 
   <div class="card">
-    <label class="filebtn">CARGAR EXCEL / CSV<input id="file" type="file" accept=".xlsx,.xls,.csv"></label>
-    <div class="small">Columnas recomendadas: <b>codigo</b>, nombre, rrpp_origen y tipo. También reconoce “QR”, “RRPP”, “origen”, etc.</div>
-    <div class="row">
+    <div class="small">La lista activa está en la base central de SOMA. Todos los teléfonos consultan el mismo estado.</div>
+    <div class="row" style="margin-top:8px">
+      <button class="secondary" id="refreshBtn">ACTUALIZAR DATOS</button>
       <button class="secondary" id="exportBtn">EXPORTAR RESULTADO</button>
-      <button class="secondary" id="templateBtn">BAJAR PLANTILLA CSV</button>
     </div>
   </div>
 
@@ -67,147 +71,30 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;b
   </div>
 
   <div class="card">
-    <button class="secondary" id="undoBtn">DESHACER ÚLTIMO INGRESO</button>
-    <button class="danger" id="resetBtn">REINICIAR INGRESOS</button>
-    <div class="small">Los datos quedan guardados en este navegador. No borres los datos de Safari durante el evento.</div>
+    <div class="small">Modo multi-dispositivo activo. Si se pierde Internet, el lector no valida entradas para evitar duplicados.</div>
   </div>
 </div>
 
 <script>
-const INITIAL_CODES = [
-    "00BA69078CC09BB5CBA47AB7BCEAFF94",
-    "0511AB75BF5E03D06C92DD30C97FE1DE",
-    "0E729E0E48B5BAF7E1E29FC5FED8BF22",
-    "138DC2A5A91B195631BBAE8DC74F2402",
-    "23BFA8D627E57C70D77A67C2C79DD3EB",
-    "2635EC7C3435F81E5CEF14637E9D4162",
-    "310AECF7F49FF2D97627909BD04C7619",
-    "417722A8A7746DCEDE48C8461303B1C1",
-    "4541B398BD1A046D130984FEE76B1588",
-    "472B36EFFDA95338C87D981BBA5D5A8F",
-    "5A11208834975C56D236BC7C2E6564F1",
-    "617D8050732FD53CA3D4A74D7EC8BFD3",
-    "624EE5E44E94088FE016116B04CA550C",
-    "62E19565F4CDA52954C56F05219AA6B1",
-    "6C64879B5707300287552F0E69E8661E",
-    "737A77BD84DFB9B81E6F2488B970BC7A",
-    "765ECA54CCF67B1B32850C16BCB6EB8C",
-    "7D6C30540BF0AF7487305DFBC1E6E950",
-    "7E2381906CB2CBF511CE2CB80AF9B150",
-    "7F2920EB22A52F42C5888EC94C1BA143",
-    "80058205FD26524ADD7C6EFFDF9E75B7",
-    "805E5B7CA6E0A9B49A8F1453E71D8A83",
-    "82E6C4C140090CF638FEA7039E7AE3D2",
-    "899092F517F313CEA24709210D1189E9",
-    "8EA597802F65BC6693822CF0C3D3A554",
-    "A0C590FED9D4ED4CBEB6C3978A9FC834",
-    "AF958D768D9F3E013C22157FC7E65CC4",
-    "B1B70A409882D1780DE32091CEB1F97E",
-    "B34ADBCCC66A4717B9FD4996E9849EE9",
-    "B5016BD790705FF71EACAB8CF60EE882",
-    "B7EFD59229C95E3D41163D47DF16D159",
-    "BD6CB65D279FAF6B207F2E50652D4A24",
-    "C05E3A567BBB99B936F34CFDDFAF81F0",
-    "CCF52F94A473B70B876D5E9D81F882EF",
-    "CF746BA2E140CC84FAB6CD77358A9057",
-    "D2318491F992C5BAC8AA0ED37DD6435E",
-    "D292B3F95D08A4FBC47E46F258F4BDE2",
-    "D3D377B0FF56AB7AF41F363C970B9BA6",
-    "D83CE7AFDCD5C25059AC281610FC35FE",
-    "E608D1CBD14FAF76AF3229EB52B76A65",
-    "E7915104A468BABBB7B7B9D66EC7D2F2",
-    "E80FFBDD046898CC6E91E2AAD4418DDF",
-    "E8677ACC43E1BA8C8D785B2A82E480F1",
-    "E932619E32BF6620C8B187EA6D571E4C",
-    "EAE4F5A472319C502C0D206DE345CE39",
-    "EDCC22AB7A895C7BDF654507971BDAC4",
-    "EFD26707E1B1AE58902EB934751195C4",
-    "F7566FF12741C40A25BD4B9B3C407D7F",
-    "FB3C0CCF07D2A34CEA0C662A1039ADFF",
-    "FB622FCA4B47170B8E29C5D428351277"
-];
-const KEY="soma_access_v1";
-let db = load();
-let scanner=null, scanning=false, lock=false;
-
-function initialDb(){
-  return {people: INITIAL_CODES.map(c=>({codigo:c,nombre:"",rrpp_origen:"",tipo:"Invitación Especial",usado:false,hora:""})), log:[]};
-}
-function load(){try{return JSON.parse(localStorage.getItem(KEY))||initialDb()}catch(e){return initialDb()}}
-function save(){localStorage.setItem(KEY,JSON.stringify(db));render()}
-function norm(v){return String(v??"").trim()}
-function keyNorm(v){return norm(v).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"")}
-function get(row,names){for(const k of Object.keys(row)){if(names.includes(keyNorm(k))) return norm(row[k])}return ""}
-function render(){
-  const used=db.people.filter(x=>x.usado).length;
-  document.getElementById("total").textContent=db.people.length;
-  document.getElementById("used").textContent=used;
-  document.getElementById("pending").textContent=db.people.length-used;
-  document.getElementById("history").innerHTML=db.log.slice().reverse().slice(0,50).map(x=>`<tr><td>${esc(x.hora)}</td><td>${esc(x.nombre||"—")}</td><td>${esc(x.rrpp_origen||"—")}</td></tr>`).join("");
-}
-function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
-function show(type,title,p){
-  const el=document.getElementById("result"); el.className="result show "+type;
-  rTitle.textContent=title; rWho.textContent=p?.nombre||""; rDetail.textContent=p?([p.rrpp_origen&&("RRPP: "+p.rrpp_origen),p.tipo,p.hora&&("Ingreso: "+p.hora)].filter(Boolean).join(" · ")):"";
-  if(navigator.vibrate) navigator.vibrate(type==="ok"?100:[120,70,120]);
-  clearTimeout(show.t); show.t=setTimeout(()=>el.classList.remove("show"),2300);
-}
-function scan(code){
-  if(lock)return; lock=true; setTimeout(()=>lock=false,1200);
-  code=norm(code);
-  const p=db.people.find(x=>x.codigo.toUpperCase()===code.toUpperCase());
-  if(!p){show("bad","QR NO VÁLIDO",null);return}
-  if(p.usado){show("warn","YA UTILIZADO",p);return}
-  const now=new Date(), hora=now.toLocaleString("es-AR");
-  p.usado=true;p.hora=hora;
-  db.log.push({codigo:p.codigo,nombre:p.nombre,rrpp_origen:p.rrpp_origen,tipo:p.tipo,hora});
-  save();show("ok","ACCESO VÁLIDO",p);
-}
-async function start(){
-  if(scanning)return;
-  scanner=new Html5Qrcode("reader");
-  try{
-    await scanner.start({facingMode:"environment"},{fps:12,qrbox:{width:260,height:260}},scan,()=>{});
-    scanning=true;startBtn.classList.add("hidden");stopBtn.classList.remove("hidden");
-  }catch(e){alert("No se pudo abrir la cámara. Usá Safari y asegurate de que la web esté publicada por HTTPS y tenga permiso de cámara.");}
-}
+const SUPABASE_URL="https://lorlkvyqhctpcednzqcb.supabase.co";
+const SUPABASE_KEY="sb_publishable_ACs496tn5DLrMoVGFcvWjA_azgpzG9I";
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let scanner=null,scanning=false,lock=false;
+const doorEl=document.getElementById("door");
+doorEl.value=localStorage.getItem("soma_puerta")||"Puerta 1";
+doorEl.onchange=()=>{doorEl.value=doorEl.value.trim()||"Puerta 1";localStorage.setItem("soma_puerta",doorEl.value)};
+function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+function updateOnline(){const e=document.getElementById("onlineState");if(navigator.onLine){e.textContent="● ONLINE · BASE CENTRAL";e.style.color="#18b45b"}else{e.textContent="● SIN CONEXIÓN · NO VALIDAR";e.style.color="#e23b3b"}}
+window.addEventListener("online",()=>{updateOnline();refreshData()});window.addEventListener("offline",updateOnline);updateOnline();
+function show(type,title,p){const el=document.getElementById("result");el.className="result show "+type;rTitle.textContent=title;rWho.textContent=p?.nombre||"";const b=[];if(p?.rrpp)b.push("RRPP: "+p.rrpp);if(p?.tipo)b.push(p.tipo);if(p?.hora_ingreso)b.push("Ingreso: "+new Date(p.hora_ingreso).toLocaleString("es-AR"));if(p?.puerta)b.push(p.puerta);rDetail.textContent=b.join(" · ");if(navigator.vibrate)navigator.vibrate(type==="ok"?100:[120,70,120]);clearTimeout(show.t);show.t=setTimeout(()=>el.classList.remove("show"),2600)}
+async function refreshData(){if(!navigator.onLine)return;try{const [{data:s,error:se},{data:h,error:he}]=await Promise.all([sb.rpc("estadisticas_entradas"),sb.rpc("ultimos_ingresos",{p_limite:50})]);if(se)throw se;if(he)throw he;const x=Array.isArray(s)?s[0]:s;if(x){total.textContent=x.total;used.textContent=x.usados;pending.textContent=x.pendientes}history.innerHTML=(h||[]).map(x=>`<tr><td>${esc(new Date(x.hora_ingreso).toLocaleString("es-AR"))}</td><td>${esc(x.nombre||"—")}</td><td>${esc(x.rrpp||"—")}</td></tr>`).join("")}catch(e){console.error(e);onlineState.textContent="● ERROR AL CONSULTAR BASE";onlineState.style.color="#e23b3b"}}
+async function scan(code){if(lock)return;lock=true;if(!navigator.onLine){show("bad","SIN CONEXIÓN",null);setTimeout(()=>lock=false,1400);return}try{const puerta=doorEl.value.trim()||"Puerta 1";localStorage.setItem("soma_puerta",puerta);const {data,error}=await sb.rpc("validar_entrada",{p_codigo:String(code).trim(),p_puerta:puerta});if(error)throw error;const r=Array.isArray(data)?data[0]:data;if(!r){show("bad","ERROR DE VALIDACIÓN",null)}else if(r.resultado==="VALIDO"){show("ok","ACCESO VÁLIDO",r);await refreshData()}else if(r.resultado==="YA_UTILIZADO"){show("warn","YA UTILIZADO",r)}else{show("bad","QR NO VÁLIDO",null)}}catch(e){console.error(e);show("bad","ERROR DE CONEXIÓN",null)}finally{setTimeout(()=>lock=false,1400)}}
+async function start(){if(scanning)return;scanner=new Html5Qrcode("reader");try{await scanner.start({facingMode:"environment"},{fps:12,qrbox:{width:260,height:260}},scan,()=>{});scanning=true;startBtn.classList.add("hidden");stopBtn.classList.remove("hidden")}catch(e){alert("No se pudo abrir la cámara. Verificá HTTPS y el permiso de cámara.")}}
 async function stop(){if(scanner&&scanning){await scanner.stop();scanning=false;startBtn.classList.remove("hidden");stopBtn.classList.add("hidden")}}
-startBtn.onclick=start;stopBtn.onclick=stop;
-
-file.onchange=async e=>{
-  const f=e.target.files[0]; if(!f)return;
-  const data=await f.arrayBuffer(); const wb=XLSX.read(data,{type:"array"}); const ws=wb.Sheets[wb.SheetNames[0]];
-  const rows=XLSX.utils.sheet_to_json(ws,{defval:""});
-  const people=rows.map(r=>({
-    codigo:get(r,["codigo","codigqr","qr","code","id"]),
-    nombre:get(r,["nombre","name","persona"]),
-    rrpp_origen:get(r,["rrpporigen","rrpp","origen","promotor","vendedor"]),
-    tipo:get(r,["tipo","type","entrada","categoria"]),
-    usado:false,hora:""
-  })).filter(x=>x.codigo);
-  if(!people.length){alert("No encontré una columna de códigos. Usá una columna llamada codigo o QR.");return}
-  if(!confirm(`Se cargarán ${people.length} entradas. Esto reemplaza el listado actual y reinicia los ingresos. ¿Continuar?`))return;
-  db={people,log:[]};save();alert("Listado cargado correctamente.");
-};
-
+startBtn.onclick=start;stopBtn.onclick=stop;refreshBtn.onclick=refreshData;
 function csvEscape(v){v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
-function download(name,text,type="text/csv;charset=utf-8"){
-  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-}
-exportBtn.onclick=()=>{
-  const head=["codigo","nombre","rrpp_origen","tipo","estado","hora_ingreso"];
-  const lines=[head.join(",")].concat(db.people.map(p=>[p.codigo,p.nombre,p.rrpp_origen,p.tipo,p.usado?"INGRESÓ":"NO INGRESÓ",p.hora].map(csvEscape).join(",")));
-  download("resultado_soma_"+new Date().toISOString().slice(0,10)+".csv","\ufeff"+lines.join("\n"));
-};
-templateBtn.onclick=()=>{
-  const lines=["codigo,nombre,rrpp_origen,tipo"].concat(db.people.map(p=>[p.codigo,p.nombre,p.rrpp_origen,p.tipo].map(csvEscape).join(",")));
-  download("plantilla_soma.csv","\ufeff"+lines.join("\n"));
-};
-undoBtn.onclick=()=>{
-  const last=db.log.pop();if(!last){alert("No hay ingresos para deshacer.");return}
-  const p=db.people.find(x=>x.codigo===last.codigo);if(p){p.usado=false;p.hora=""}save();
-};
-resetBtn.onclick=()=>{if(confirm("¿Seguro que querés borrar todos los ingresos registrados?")){db.people.forEach(p=>{p.usado=false;p.hora=""});db.log=[];save()}};
-render();
+function download(name,text){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:"text/csv;charset=utf-8"}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+exportBtn.onclick=async()=>{try{const {data,error}=await sb.rpc("exportar_entradas");if(error)throw error;const head=["codigo","nombre","rrpp","tipo","estado","hora_ingreso","puerta"];const rows=(data||[]).map(p=>[p.codigo,p.nombre,p.rrpp,p.tipo,p.usado?"INGRESÓ":"NO INGRESÓ",p.hora_ingreso?new Date(p.hora_ingreso).toLocaleString("es-AR"):"",p.puerta].map(csvEscape).join(","));download("resultado_soma_"+new Date().toISOString().slice(0,10)+".csv","\ufeff"+[head.join(","),...rows].join("\n"))}catch(e){console.error(e);alert("No se pudo exportar el resultado.")}};
+refreshData();setInterval(refreshData,15000);
 </script>
 </body></html>
